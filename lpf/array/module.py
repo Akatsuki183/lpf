@@ -209,6 +209,21 @@ class CupyModule(NumpyModule):
 
     def __exit__(self, *args, **kwargs):
         return self._device.__exit__(*args, **kwargs)
+    
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state.pop('_module', None)
+        state.pop('_device', None)
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+
+        import cupy as cp
+        self._module = cp
+        self._device = self._module.cuda.Device()
+        self._device.id = self._device_id
+        self._device.use()
 
     def any(self, *args, **kwargs):
         with self._module.cuda.Device(self.device_id):

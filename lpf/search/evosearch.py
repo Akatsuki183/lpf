@@ -102,51 +102,123 @@ class EvoSearch:
         return [sum_obj]
 
     def get_bounds(self):
-        return (self.bounds_min, self.bounds_max)
+        lb = self.bounds_min.get() if hasattr(self.bounds_min, 'get') else self.bounds_min
+        ub = self.bounds_max.get() if hasattr(self.bounds_max, 'get') else self.bounds_max
+        return (lb, ub)
 
+    # def save(self, 
+    #          mode,
+    #          dv,             
+    #          max_generation=None,
+    #          generation=None,
+    #          fitness=None,
+    #          arr_color=None):
+
+    #     dv = dv[None, :]
+
+    #     self.model.initializer = self.converter.to_initializer(dv)
+    #     self.model.params = self.converter.to_params(dv)
+
+    #     str_now = datetime.now().strftime('%Y%m%d-%H%M%S')
+        
+    #     if generation is None:
+    #         str_gen = ""
+    #     else:
+    #         if max_generation is None:
+    #             max_generation = 1000000
+                
+    #         fstr_gen = "gen-%0{}d_".format(int(np.ceil(np.log10(max_generation)))+1)
+    #         str_gen = fstr_gen%(int(generation))
+        
+    #     if mode == "pop":
+    #         fpath_model = pjoin(self.dpath_population,
+    #                             "%smodel_%s.json"%(str_gen, str_now))    
+
+    #         fpath_morph = pjoin(self.dpath_population,
+    #                             "%smorph_%s.png"%(str_gen, str_now))
+
+    #         fpath_pattern = pjoin(self.dpath_population,
+    #                               "%spattern_%s.png"%(str_gen, str_now))
+            
+    #     elif mode == "best":            
+    #         fpath_model = pjoin(self.dpath_best,
+    #                             "%smodel_%s.json"%(str_gen, str_now))
+            
+    #         fpath_morph = pjoin(self.dpath_best,
+    #                             "%smorph_%s.png"%(str_gen, str_now))
+
+    #         fpath_pattern = pjoin(self.dpath_best,
+    #                               "%spattern_%s.png"%(str_gen, str_now))
+    #     else:
+    #         raise ValueError("mode should be 'pop' or 'best'")
+
+    #     if arr_color is None:
+    #         digest = get_hash_digest(dv)            
+    #         if digest not in self.cache:                
+    #             try:
+    #                 self.solver.solve(model=self.model)
+    #             except (ValueError, FloatingPointError) as err:
+    #                 return False
+                
+    #             arr_color = self.model.colorize()
+    #             self.cache[digest] = arr_color
+    #         else: 
+    #             # Fetch the stored array from the cache.
+    #             arr_color = self.cache[digest]
+    #     # end of if
+
+    #     self.model.save_model(index=0,
+    #                           fpath=fpath_model,
+    #                           initializer=self.model.initializer,
+    #                           params=self.model.params,
+    #                           solver=self.solver,
+    #                           generation=generation,
+    #                           fitness=fitness)
+        
+    #     self.model.save_image(index=0,
+    #                           fpath_morph=fpath_morph,
+    #                           fpath_pattern=fpath_pattern,
+    #                           arr_color=arr_color)
+            
+    #     return True
+
+    # 複数island対応・save時のファイル名変更
     def save(self, 
-             mode,
-             dv,             
-             max_generation=None,
-             generation=None,
-             fitness=None,
-             arr_color=None):
+         mode,
+         dv,             
+         max_generation=None,
+         generation=None,
+         fitness=None,
+         arr_color=None,
+         island=None,
+         individual=None):  # 追加
 
         dv = dv[None, :]
 
         self.model.initializer = self.converter.to_initializer(dv)
         self.model.params = self.converter.to_params(dv)
 
-        str_now = datetime.now().strftime('%Y%m%d-%H%M%S')
-        
         if generation is None:
             str_gen = ""
         else:
             if max_generation is None:
                 max_generation = 1000000
-                
             fstr_gen = "gen-%0{}d_".format(int(np.ceil(np.log10(max_generation)))+1)
-            str_gen = fstr_gen%(int(generation))
-        
+            str_gen = fstr_gen % (int(generation))
+
+        str_isl = "" if island is None else "isl-%02d_" % island
+        str_ind = "" if individual is None else "ind-%03d_" % individual
+
+        prefix = "%s%s%s" % (str_gen, str_isl, str_ind)
+
         if mode == "pop":
-            fpath_model = pjoin(self.dpath_population,
-                                "%smodel_%s.json"%(str_gen, str_now))    
-
-            fpath_morph = pjoin(self.dpath_population,
-                                "%smorph_%s.png"%(str_gen, str_now))
-
-            fpath_pattern = pjoin(self.dpath_population,
-                                  "%spattern_%s.png"%(str_gen, str_now))
-            
-        elif mode == "best":            
-            fpath_model = pjoin(self.dpath_best,
-                                "%smodel_%s.json"%(str_gen, str_now))
-            
-            fpath_morph = pjoin(self.dpath_best,
-                                "%smorph_%s.png"%(str_gen, str_now))
-
-            fpath_pattern = pjoin(self.dpath_best,
-                                  "%spattern_%s.png"%(str_gen, str_now))
+            fpath_model = pjoin(self.dpath_population, "%smodel.json" % prefix)
+            fpath_morph = pjoin(self.dpath_population, "%smorph.png" % prefix)
+            fpath_pattern = pjoin(self.dpath_population, "%spattern.png" % prefix)
+        elif mode == "best":
+            fpath_model = pjoin(self.dpath_best, "%smodel.json" % prefix)
+            fpath_morph = pjoin(self.dpath_best, "%smorph.png" % prefix)
+            fpath_pattern = pjoin(self.dpath_best, "%spattern.png" % prefix)
         else:
             raise ValueError("mode should be 'pop' or 'best'")
 
@@ -157,25 +229,22 @@ class EvoSearch:
                     self.solver.solve(model=self.model)
                 except (ValueError, FloatingPointError) as err:
                     return False
-                
                 arr_color = self.model.colorize()
                 self.cache[digest] = arr_color
             else: 
-                # Fetch the stored array from the cache.
                 arr_color = self.cache[digest]
-        # end of if
 
         self.model.save_model(index=0,
-                              fpath=fpath_model,
-                              initializer=self.model.initializer,
-                              params=self.model.params,
-                              solver=self.solver,
-                              generation=generation,
-                              fitness=fitness)
+                            fpath=fpath_model,
+                            initializer=self.model.initializer,
+                            params=self.model.params,
+                            solver=self.solver,
+                            generation=generation,
+                            fitness=fitness)
         
         self.model.save_image(index=0,
-                              fpath_morph=fpath_morph,
-                              fpath_pattern=fpath_pattern,
-                              arr_color=arr_color)
+                            fpath_morph=fpath_morph,
+                            fpath_pattern=fpath_pattern,
+                            arr_color=arr_color)
             
         return True

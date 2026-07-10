@@ -48,6 +48,11 @@ class CuKernelManager:
     fast_math : bool
         Use --use_fast_math for JIT compilation.
     """
+    _JIT_ATTRS = (
+            '_jit_euler', '_jit_pdefunc', '_jit_stage',
+            '_jit_rk4_combine', '_jit_heun_combine',
+            '_jit_scale', '_jit_lc2', '_jit_lc3',
+        )
 
     def __init__(self, model_name, dtype=np.float32, fast_math=False):
         import cupy as cp
@@ -100,6 +105,18 @@ class CuKernelManager:
             loader.get_euler_kernel(model_name, dtype)
             self._aot = loader
             self._use_aot = True
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state['_cp'] = None
+        for attr in self._JIT_ATTRS:
+            state[attr] = None
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        import cupy as cp
+        self._cp = cp
 
     # ================================================================
     # Properties
