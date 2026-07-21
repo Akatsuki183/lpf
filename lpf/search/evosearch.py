@@ -5,6 +5,8 @@ from collections.abc import Sequence
 
 import yaml
 import numpy as np
+import cv2 as cv
+from scipy.optimize import linear_sum_assignment
 
 from lpf.utils import get_hash_digest
 
@@ -17,7 +19,10 @@ class EvoSearch:
                  converter=None,
                  targets=None,
                  objectives=None,
-                 droot_output=None):
+                 droot_output=None,
+                 spot_weight=0.0,
+                 spot_min_area=50,
+                 spot_img_size=128):
         
         self.config = config
         self.model = model
@@ -31,6 +36,10 @@ class EvoSearch:
         self.targets = targets
 
         self.objectives = objectives
+
+        self.spot_weight = spot_weight
+        self.spot_min_area = spot_min_area
+        self.spot_img_size = spot_img_size
 
         self.bounds_min, self.bounds_max = self.model.get_param_bounds()
 
@@ -51,6 +60,56 @@ class EvoSearch:
         fpath_config = pjoin(self.dpath_output, "config.yaml")
         with open(fpath_config, 'wt') as fout:
             yaml.dump(config, fout, default_flow_style=False)
+    
+    # ================================================================
+    # Spot position scoring (optional; requires lpf[spot-scoring])
+    # ================================================================
+
+    def _get_centroids(self, img):
+        try:
+            import cv2
+        except ImportError as e:
+            raise ImportError(
+                "spot_weight > 0 requires opencv-python. "
+                "Install it via: pip install lpf[spot-scoring]"
+            ) from e
+
+        arr = np.array(img)
+        hsv = cv2.cvtColor(arr, cv2.COLOR_RGB2HSV)
+        mask1 = cv2.inRange(hsv, (0, 80, 80), (10, 255, 255))
+        mask2 = cv2.inRange(hsv, (170, 80, 80), (180, 255, 255))
+        mask = (mask1 | mask2).astype(np.uint8)
+        _, _, stats, _ = cv2.connectedComponentsWithStats(mask)
+        centroids = []
+        for s in stats[1:]:
+            if s[cv2.CC_STAT_AREA] > self.spot_min_area:
+                cx = s[cv2.CC_STAT_LEFT] + s[cv2.CC_STAT_WIDTH] / 2
+                cy = s[cv2.CC_STAT_TOP] + s[cv2.CC_STAT_HEIGHT] / 2
+                centroids.append([cx, cy])
+        return np.array(centroids) if centroids else np.empty((0, 2))
+
+    def _spot_position_score(self, morph_img, target_img):
+        try:
+            from scipy.optimize import linear_sum_assignment
+        except ImportError as e:
+            raise ImportError(
+                "spot_weight > 0 requires scipy. "
+                "Install it via: pip install lpf[spot-scoring]"
+            ) from e
+
+        c_morph = self._get_centroids(morph_img)
+        c_target = self._get_centroids(target_img)
+        n_m, n_t = len(c_morph), len(c_target)
+
+        count_penalty = abs(n_m - n_t) / max(n_t, 1)
+        if n_m == 0 or n_t == 0:
+            return count_penalty
+
+        cost = np.linalg.norm(c_morph[:, None] - c_target[None, :], axis=2)
+        row_ind, col_ind = linear_sum_assignment(cost)
+        position_penalty = cost[row_ind, col_ind].mean() / self.spot_img_size
+
+        return count_penalty + position_penalty
 
     def fitness(self, x):
         digest = get_hash_digest(x)
@@ -93,11 +152,17 @@ class EvoSearch:
 
         # Evaluate objectives.
         morph, pattern = self.model.create_image(0, arr_color)
+        morph_rgb = morph.convert("RGB")
         imgs = [morph.convert("RGB")]
         sum_obj = 0.0
         for obj in self.objectives:
             val = obj.compute(imgs, self.targets)
             sum_obj += float(np.sum(val))
+
+        # Spot position score (only computed if enabled).
+        if self.spot_weight > 0.0:
+            spot_scores = [self._spot_position_score(morph_rgb, t) for t in self.targets]
+            sum_obj += self.spot_weight * float(np.mean(spot_scores))
 
         return [sum_obj]
 
@@ -191,7 +256,7 @@ class EvoSearch:
          fitness=None,
          arr_color=None,
          island=None,
-         individual=None):  # 追加
+         individual=None):
 
         dv = dv[None, :]
 
