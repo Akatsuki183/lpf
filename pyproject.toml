@@ -34,6 +34,9 @@ cu128 = ["cupy-cuda12x"]
 cu130 = ["cupy-cuda13x"]
 cu132 = ["cupy-cuda13x"]
 
+# --- Optional fitness extras ---
+spot-scoring = ["opencv-python-headless", "scipy"]
+
 # --- PyTorch variants (optional) --------------------------------------------
 # Use these only if you want the PyTorch backend (device="torch:cuda:0").
 # CuPy + CUDA kernels is the default and recommended path; PyTorch is bridged
