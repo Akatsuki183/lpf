@@ -21,7 +21,8 @@ class EvoSearch:
                  objectives=None,
                  droot_output=None,
                  spot_weight=0.0,
-                 spot_min_area=50,
+                 spot_min_area=35,
+                 spot_max_area=1700,
                  spot_img_size=128):
         
         self.config = config
@@ -39,6 +40,7 @@ class EvoSearch:
 
         self.spot_weight = spot_weight
         self.spot_min_area = spot_min_area
+        self.spot_max_area = spot_max_area
         self.spot_img_size = spot_img_size
 
         self.bounds_min, self.bounds_max = self.model.get_param_bounds()
@@ -65,6 +67,16 @@ class EvoSearch:
     # Spot position scoring (optional; requires lpf[spot-scoring])
     # ================================================================
 
+    def _filtered_centroids(self, mask, cv2):
+        """Return true pixel centroids of connected components whose
+        area falls within (spot_min_area, spot_max_area)."""
+        _, _, stats, centroids = cv2.connectedComponentsWithStats(mask)
+        result = [
+            centroids[i] for i in range(1, len(stats))
+            if self.spot_min_area < stats[i, cv2.CC_STAT_AREA] < self.spot_max_area
+        ]
+        return result
+
     def _get_centroids(self, img):
         try:
             import cv2
@@ -76,17 +88,18 @@ class EvoSearch:
 
         arr = np.array(img)
         hsv = cv2.cvtColor(arr, cv2.COLOR_RGB2HSV)
+
         mask1 = cv2.inRange(hsv, (0, 80, 80), (10, 255, 255))
         mask2 = cv2.inRange(hsv, (170, 80, 80), (180, 255, 255))
-        mask = (mask1 | mask2).astype(np.uint8)
-        _, _, stats, _ = cv2.connectedComponentsWithStats(mask)
-        centroids = []
-        for s in stats[1:]:
-            if s[cv2.CC_STAT_AREA] > self.spot_min_area:
-                cx = s[cv2.CC_STAT_LEFT] + s[cv2.CC_STAT_WIDTH] / 2
-                cy = s[cv2.CC_STAT_TOP] + s[cv2.CC_STAT_HEIGHT] / 2
-                centroids.append([cx, cy])
-        return np.array(centroids) if centroids else np.empty((0, 2))
+        red_mask = (mask1 | mask2).astype(np.uint8)
+        black_mask = cv2.inRange(hsv, (0, 0, 0), (180, 255, 60)).astype(np.uint8)
+
+        red_candidates = self._filtered_centroids(red_mask, cv2)
+        black_candidates = self._filtered_centroids(black_mask, cv2)
+
+        chosen = black_candidates if len(black_candidates) >= len(red_candidates) else red_candidates
+
+        return np.array(chosen) if chosen else np.empty((0, 2))
 
     def _spot_position_score(self, morph_img, target_img):
         try:
@@ -124,33 +137,16 @@ class EvoSearch:
             self.model.initializer = initializer
             self.model.params = params
 
-            # Check constraints and ignore the decision vector if it does not satisfy.
-            # if not self.model.check_constraints():
-            #    return [np.inf]
-
             try:
                 self.solver.solve(self.model)
             except (ValueError, FloatingPointError) as err:
                 print("[ERROR IN FITNESS EVALUATION]", err)
                 return [np.inf]
 
-            # idx = self.model.u > self.model.thr
-            #
-            # if not idx.any():
-            #     return [np.inf]
-            # elif self.model.u.size == idx.sum():
-            #     return [np.inf]
-            # elif np.allclose(self.model.u[idx], self.model.u[idx].mean()):
-            #     return [np.inf]
-
-            # Colorize the morph model.
             arr_color = self.model.colorize()
-
-            # Store the colorized object in the cache.
             self.cache[digest] = arr_color
         # end of if-else
 
-        # Evaluate objectives.
         morph, pattern = self.model.create_image(0, arr_color)
         morph_rgb = morph.convert("RGB")
         imgs = [morph.convert("RGB")]
@@ -159,7 +155,6 @@ class EvoSearch:
             val = obj.compute(imgs, self.targets)
             sum_obj += float(np.sum(val))
 
-        # Spot position score (only computed if enabled).
         if self.spot_weight > 0.0:
             spot_scores = [self._spot_position_score(morph_rgb, t) for t in self.targets]
             sum_obj += self.spot_weight * float(np.mean(spot_scores))
