@@ -1,1 +1,2 @@
 from lpf.reproducers.randomtwocomponentdiploidreproducer import RandomTwoComponentDiploidReproducer
+from lpf.reproducers.fitnessselectingdiploidreproducer import FitnessSelectingDiploidReproducer
